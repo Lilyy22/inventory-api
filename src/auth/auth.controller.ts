@@ -3,21 +3,16 @@ import {
   Controller,
   Get,
   Post,
-  Req,
+  Request,
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { AuthService } from './auth.service';
-import { userBody } from 'src/user/dto/userBody.dto';
 import { LocalAuthGuard } from './gurads/local-auth.guard';
-import { Response, Request } from 'express';
-import { LoginDto } from './dto/LoginDto.dto';
 import { refreshTokenDto } from './dto/refreshTokenDto.dto';
+import { SignupDto } from './dto/SignupDto';
 import { JwtAuthGuard } from './gurads/jwt-auth.guard';
-
-interface CustomRequest extends Request {
-  user: any; // Type the user object based on what you are attaching to it
-}
 
 @Controller('auth')
 export class AuthController {
@@ -25,42 +20,59 @@ export class AuthController {
 
   @UseGuards(LocalAuthGuard)
   @Post('login')
-  async login(@Body() loginDto: LoginDto, @Res() res: Response) {
+  async login(@Request() req, @Res({ passthrough: true }) res: Response) {
     try {
-      return await this.authService.login(loginDto, res);
+      // console.log('req.user', req.user);
+      return await this.authService.login(req.user, res);
     } catch (error) {
-      res.status(400).json({ message: error });
+      res.status(400).json({ message: error.message });
     }
   }
 
+  // @UseGuards(LocalAuthGuard)
   @Post('signup')
-  async signup(@Body() userdetail: userBody, @Res() res: Response) {
+  async signup(@Body() userdetail: SignupDto, @Res() res: Response) {
     try {
       return await this.authService.signup(userdetail, res);
     } catch (error) {
-      res.status(400).json({ message: error });
+      res.status(400).json({ message: error.message });
     }
   }
 
   @Post('refreshToken')
   async refreshToken(
-    @Body() refreshToken: refreshTokenDto,
+    @Body() refreshTokenDto: refreshTokenDto,
     @Res({ passthrough: true }) res: Response,
   ) {
     try {
-      return await this.authService.refreshToken(refreshToken, res);
+      return await this.authService.refreshToken(refreshTokenDto);
     } catch (error) {
       // Check if the error is an instance of an HTTP exception
       const message =
         error.response?.message || error.message || 'An error occurred';
-
       res.status(error.status || 400).json({ message });
     }
   }
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  async getMe(@Req() req: CustomRequest) {
-    return this.authService.getMe(req);
+  async getMe(@Request() req: any, @Res({ passthrough: true }) res: Response) {
+    try {
+      return this.authService.getMe(req.user, res);
+    } catch (error) {
+      res.status(400).json({ message: error });
+    }
   }
+
+  // @Get('logout')
+  // @UseGuards(JwtAuthGuard)
+  // logout clear http cookie
+  // async logout(res: Response) {
+  //   res.clearCookie('refreshToken', {
+  //     httpOnly: true,
+  //     secure: true,
+  //     sameSite: 'strict',
+  //   });
+  //   return res.status(200).json({ message: 'Logged out successfully' });
+  // }
 }

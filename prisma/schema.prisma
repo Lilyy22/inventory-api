@@ -6,6 +6,7 @@
 
 generator client {
   provider = "prisma-client-js"
+  output   = "../generated/prisma"
 }
 
 datasource db {
@@ -14,36 +15,40 @@ datasource db {
 }
 
 
-model EmailTemplate {
+//notification
+model EmailTemplates {
   id          String   @id @default(uuid())
   name        String   @unique
   subject     String
   body        String
   footer      String
+
   createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  updatedAt   DateTime @default(now()) @updatedAt
 }
 
-model PushNotification {
+model PushNotifications {
   id          String   @id @default(uuid())
   userId      String
   title       String
   body        String
   deviceToken String
   isRead      Boolean  @default(false)
+
   createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  updatedAt   DateTime @default(now()) @updatedAt
 }
 
-model Notification {
+model Notifications {
   id          String   @id @default(uuid())
   userId      String
   title       String
   body        String
   deviceToken String
   isRead      Boolean  @default(false)
+
   createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  updatedAt   DateTime @default(now()) @updatedAt
 }
 
 enum Role {
@@ -52,27 +57,178 @@ enum Role {
   SALES
 }
 
-model User {
-  id       Int     @id @default(autoincrement())
-  name     String?
-  email    String  @unique
-  role     Role    @default(USER)
-  password String
+model Users {
+  id           String       @id @default(uuid()) @db.Uuid
+  // username     String?      @unique
+  email        String?      @unique
+  // phone        String?      @unique
+  // googleId     String?      @unique
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime? @updatedAt
+  role         Role         @default(USER)
+  password     String
+
+  isActive     Boolean?
+  // emailVerifiedAt DateTime?
+  // phoneVerifiedAt DateTime?
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime?     @default(now()) @updatedAt
 
   refreshTokens refreshTokens[]
 
-  @@map("users")
+  @@index([email, role])
+}
+
+
+model Permissions {
+  id          String    @id @default(uuid()) @db.Uuid
+  action      String
+  name        String   @unique
+  resource    String   // The resource the permission applies to (e.g., 'raw_material', 'finished_product')
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  rolePermission RolePermissions[]
+}
+
+model RolePermissions {
+  id            String      @id @default(uuid()) @db.Uuid
+  role          Role
+  permissionId  String      @db.Uuid // Match the type of Role.id// Foreign key to Permission
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @default(now()) @updatedAt
+
+  permission    Permissions @relation(fields: [permissionId], references: [id])
 }
 
 model refreshTokens {
-  user_id Int @id
-  refresh_token String 
-  
-  created_at DateTime  @default(now())
-  updated_at DateTime  @default(now()) @updatedAt
+  userId        String    @id @db.Uuid
+  refreshToken  String 
 
-  user   User  @relation(fields: [user_id], references: [id])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now()) @updatedAt
+
+  user   Users  @relation(fields: [userId], references: [id])
 }
+
+// Enums
+enum DeliveryFreq {
+  Daily
+  Monthly
+  Yearly
+}
+
+enum DeliveryStatus {
+  Completed
+  Shipped
+  InStock
+}
+
+// Customer Model
+model Customer {
+  id          String            @id @default(cuid())
+  name        String
+  description String?
+  contacts    Json
+  address     Json
+  status      Boolean            // Active or Inactive
+  created_by  String
+  updated_by  String
+  created_at  DateTime           @default(now())
+  updated_at  DateTime           @updatedAt
+  orders      CustomerOrder[]
+}
+
+// Customer Orders Model
+model CustomerOrder {
+  id                 String         @id @default(cuid())
+  name               String         // Name of the finished product (e.g., Bottle Cap)
+  order_number       String         @unique // Unique order number for the customer batch
+  startDate          DateTime
+  endDate            DateTime?      // Optional end date, if the order is completed
+  deliveryFrequency  DeliveryFreq
+  totalquantity      Float          // Total quantity to be delivered during the year or any term of subscription
+  status             String         // Status of the order (e.g., "In Progress", "Completed", "Shipped")
+  customer_id        String
+  created_by         String
+  updated_by         String
+  created_at         DateTime       @default(now())
+  updated_at         DateTime       @updatedAt
+  customer           Customer       @relation(fields: [customer_id], references: [id])
+  finished_products  CustomerFinishedProduct[]
+}
+
+// Customer Finished Products Model
+model CustomerFinishedProduct {
+  id               String         @id @default(cuid())
+  sku              String         // Unique identifier for the product
+  quantity         Float          // Quantity in stock (number of finished products)
+  measurement      String         // Unit of measurement (pieces, boxes, etc.)
+  status           DeliveryStatus // Status of the delivery (shipped, completed)
+  expiration_date  DateTime       // Expiry date for perishable finished products
+  deliveryDate     DateTime       // When the product is delivered to the company
+  order_id         String
+  created_by       String
+  updated_by       String
+  created_at       DateTime       @default(now())
+  updated_at       DateTime       @updatedAt
+  order            CustomerOrder  @relation(fields: [order_id], references: [id])
+}
+
+// Suppliers Model
+model Supplier {
+  id          String            @id @default(cuid())
+  name        String
+  description String?
+  contacts    Json
+  address     Json
+  materials   RawMaterial[]
+}
+
+// Warehouses Model
+model Warehouse {
+  id          String            @id @default(cuid())
+  name        String
+  description String?
+  materials   RawMaterial[]
+}
+
+// Raw Materials Model
+model RawMaterial {
+  id               String         @id @default(cuid())
+  name             String
+  description      String?
+  unique_code      String         @unique
+  quantity         Float
+  current_quantity Float          // Low stock threshold = 50
+  measurement      String
+  price            Float          // Per unit
+  expiration_date  DateTime?
+  shipment_date    DateTime       // Date when the material was received
+  storage          String         // Storage conditions for raw material
+  warehouse_id     String
+  supplier_id      String
+  created_by       String
+  updated_by       String
+  created_at       DateTime       @default(now())
+  updated_at       DateTime       @updatedAt
+  warehouse        Warehouse      @relation(fields: [warehouse_id], references: [id])
+  supplier         Supplier       @relation(fields: [supplier_id], references: [id])
+}
+
+// Product Recipes Model
+// model ProductRecipe {
+//   id                String         @id @default(cuid())
+//   quantity_used     Float          // Quantity of raw material used in the production of one unit of finished product
+//   usage_date        DateTime       // Date when the material was used
+//   finished_product_id String
+//   raw_material_id   String
+//   created_by        String
+//   updated_by        String
+//   created_at        DateTime       @default(now())
+//   updated_at        DateTime       @updatedAt
+//   finished_product  CustomerFinishedProduct @relation(fields: [finished_product_id], references: [id])
+//   raw_material      RawMaterial    @relation(fields: [raw_material_id], references: [id])
+// }

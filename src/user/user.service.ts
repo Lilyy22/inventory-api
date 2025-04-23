@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
+import { SignupDto } from 'src/auth/dto/SignupDto';
 
 @Injectable()
 export class UserService {
@@ -13,17 +14,29 @@ export class UserService {
     if (user) {
       return user;
     } else {
-      throw new NotFoundException('credentials not found in our db.');
+      throw new NotFoundException('user not found in our db.');
     }
   }
 
-  async create(email: string, password: string): Promise<any> {
+  async findById(id: string): Promise<any> {
+    const user = await this.prismaService.user.findById({
+      where: { id: id },
+    });
+    if (user) {
+      return user;
+    } else {
+      throw new NotFoundException('user not found in our db.');
+    }
+  }
+
+  async create(userdetail: SignupDto): Promise<any> {
     try {
-      const hashedPass = await bcrypt.hash(password, 10);
       const user = await this.prismaService.user.create({
-        data: {
-          email: email,
-          password: hashedPass,
+        data: userdetail,
+        select: {
+          id: true,
+          role: true,
+          email: true,
         },
       });
 

@@ -3,7 +3,7 @@ import { EmailtemplateService } from './emailtemplate.service';
 import { CreateEmailTemplateDto } from './dto/createEmailTemplateDto';
 import { UpdateEmailTemplateDto } from './dto/updateEmailTemplateDto';
 
-@Controller('email-templates')
+@Controller('email-template')
 export class EmailTemplateController {
   constructor(private readonly emailTemplateService: EmailtemplateService) {}
 

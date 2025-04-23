@@ -2,14 +2,11 @@ import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from 'prisma/prisma.service';
 import { CreateEmailTemplateDto } from './dto/createEmailTemplateDto';
 import { UpdateEmailTemplateDto } from './dto/updateEmailTemplateDto';
-import { Cache } from 'cache-manager';
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
 
 @Injectable()
 export class EmailtemplateService {
   constructor(
     private readonly prismaService: PrismaService,
-    @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {}
 
   // Create an Email Template
@@ -39,11 +36,11 @@ export class EmailtemplateService {
   // Fetch Email Template by Name
   async getTemplate(name: string) {
     // Try fetching from cache first
-    const cachedTemplate = await this.cacheManager.get(name);
-    if (cachedTemplate) {
-      console.log('Template found in cache');
-      return cachedTemplate;
-    }
+    // const cachedTemplate = await this.cacheManager.get(name);
+    // if (cachedTemplate) {
+    //   console.log('Template found in cache');
+    //   return cachedTemplate;
+    // }
 
     try {
       // If not in cache, fetch from database
@@ -51,7 +48,7 @@ export class EmailtemplateService {
         where: { name: name },
       });
 
-      await this.cacheManager.set(name, template); // TTL of 1 day (24 hours)
+      // await this.cacheManager.set(name, template); // TTL of 1 day (24 hours)
       return template;
     } catch (err) {
       throw new Error(`Template "${name}" not found`);

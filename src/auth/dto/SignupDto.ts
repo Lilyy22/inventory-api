@@ -1,10 +1,8 @@
-import { IsNotEmpty, MinLength, Matches } from 'class-validator';
+import { IsEmail, IsNotEmpty, MinLength } from 'class-validator';
 
-export class LoginDto {
+export class SignupDto {
   @IsNotEmpty({ message: 'Email is required' })
-  @Matches(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, {
-    message: 'Email must be a valid email address',
-  })
+  @IsEmail({}, { message: 'Email must be a valid email address' })
   email: string; // This holds only a valid email
 
   @IsNotEmpty({ message: 'Password is required' })

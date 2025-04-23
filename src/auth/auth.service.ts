@@ -6,15 +6,12 @@ import {
 } from '@nestjs/common';
 import { UserService } from 'src/user/user.service';
 import { JwtService } from '@nestjs/jwt';
-import { Response, Request } from 'express';
-import { LoginDto } from './dto/LoginDto.dto';
-import { userBody } from 'src/user/dto/userBody.dto';
+import { Response } from 'express';
 import { PrismaService } from 'prisma/prisma.service';
 import { refreshTokenDto } from './dto/refreshTokenDto.dto';
-
-interface CustomRequest extends Request {
-  user: any; // Type the user object based on what you are attaching to it
-}
+import { SignupDto } from './dto/SignupDto';
+import { EmailService } from 'src/email/email.service';
+import { TwilioService } from 'src/twilio/twilio.service';
 
 @Injectable()
 export class AuthService {
@@ -22,96 +19,91 @@ export class AuthService {
     private readonly userService: UserService,
     private readonly prismaService: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly emailService: EmailService,
+    private readonly twilioService: TwilioService,
   ) {}
 
-  // Validate JWT token user
+  // Validate JWT token user JWT GUARD
   async validateJwtUser(payload: any) {
-    const user = await this.prismaService.user.findFirst({
-      where: {
-        id: payload.sub,
-      },
-    });
+    const user = await this.userService.findById(payload.sub);
     if (!user) {
       throw new UnauthorizedException('Invalid user');
     }
-    return {
-      userId: user.id,
-      role: user.role,
-      name: user.name,
-    };
+    return user;
   }
 
-  // Validate user credentials (username and password)
+  // Validate user credentials by email for LOCLAUTH GUARD
   async validateUser(email: string, password: string) {
     try {
       const user = await this.userService.findOne(email);
       if (user && bcrypt.compareSync(password, user.password)) {
+        console.log('user', user);
         return user; // Return user if valid
       }
       throw new BadRequestException('Invalid credentials');
     } catch (err) {
-      throw new BadRequestException('Invalid credentials');
+      throw err;
     }
-    // return null; // Return null if invalid
   }
 
-  async signup(userdetail: userBody, res: Response): Promise<any> {
+  async signup(userdetail: SignupDto, res: Response): Promise<any> {
     try {
-      const user = await this.userService.create(
-        userdetail.email,
-        userdetail.password,
-      );
+      const hashedPass = await bcrypt.hash(userdetail.password, 10);
+      const user = await this.userService.create({
+        ...userdetail,
+        password: hashedPass,
+      });
+
+      res
+        .status(201)
+        .json({ message: 'We have send a verification email.', user: user });
+    } catch (err) {
+      console.log(err);
+      throw err;
+    }
+  }
+
+  // login user after checking the credential with passport localAuth Guard
+  async login(user: any, res: Response) {
+    try {
+      // Ensure isActive is not false (it can be null)
+      const isActive = user.isActive !== false;
+
+      if (!isActive) {
+        throw new Error('Deactivated Account!');
+      }
+
       const payload = {
         role: user.role,
         sub: user.id,
-        name: user.name,
       };
 
-      const token = this.tokens(payload, res);
-      return { token: token, user: user };
+      const token = await this.tokens(payload);
+      res.status(201).json({ token: token, user: user });
     } catch (err) {
       throw err;
     }
   }
 
-  async login(loginDto: LoginDto, res: Response) {
+  // Authenticated user details
+  async getMe(user: any, res: Response) {
     try {
-      const user = await this.userService.findOne(loginDto.email);
-
-      const payload = {
-        role: user.role,
-        sub: user.id,
-        name: user.name,
-      };
-
-      return this.tokens(payload, res);
+      const userDetail = await this.userService.findById(user.id);
+      res.status(201).json({ user: userDetail });
     } catch (err) {
       throw err;
     }
-  }
-
-  // logout clear http cookie
-  async logout(res: Response) {
-    res.clearCookie('refreshToken', {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'strict',
-    });
-
-    return res.status(200).json({ message: 'Logged out successfully' });
   }
 
   // update access token from the cookie on the request
-  async refreshToken(refreshToken: refreshTokenDto, res: Response) {
+  async refreshToken(refreshTokenDto: refreshTokenDto) {
     // const refreshToken = req.cookies['refreshToken'];
-
-    if (!refreshToken.refreshToken) {
+    if (!refreshTokenDto.refreshToken) {
       throw new UnauthorizedException('Refresh token missing');
     }
-
     try {
       // Step 1: Verify the refresh token
-      const payload = this.jwtService.verify(refreshToken.refreshToken);
+      const payload = this.jwtService.verify(refreshTokenDto.refreshToken);
 
       // Step 2: Extract user ID from the payload
       const userId = payload.sub;
@@ -122,11 +114,13 @@ export class AuthService {
       if (!tokenEntry) {
         throw new UnauthorizedException('No token entry found');
       }
+
       // Step 4: Compare the hashed token with the one in the cookie
       const isMatch = await bcrypt.compare(
-        refreshToken.refreshToken,
-        tokenEntry.refresh_token,
+        refreshTokenDto.refreshToken,
+        tokenEntry.refreshToken,
       );
+      console.log(isMatch, 'matching is done');
 
       if (!isMatch) {
         throw new UnauthorizedException('Invalid refresh token');
@@ -134,62 +128,49 @@ export class AuthService {
       // Destructure and exclude `iat` and `exp`
       const { iat, exp, ...cleanedPayload } = payload;
 
-      return this.tokens(cleanedPayload, res);
+      return this.tokens(cleanedPayload);
     } catch (error) {
       throw error;
     }
   }
 
   // Validate JWT token user
-  async tokens(payload, res: Response) {
+  async tokens(payload: any) {
     const refresh_token = this.jwtService.sign(payload, {
       expiresIn: '7d', // Refresh token expiration (e.g., 7 days)
     });
 
-    // res.cookie('refreshToken', refresh_token, {
-    //   httpOnly: true,
-    //   secure: true, // Use only with HTTPS
-    //   sameSite: 'none', // Mitigate CSRF
-    //   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    //   path: '/',
-    // });
-
-    await this.addRefreshToken(payload.sub, refresh_token);
-    // Explicitly return a JSON response
-    return res.status(200).json({
-      access_token: this.jwtService.sign(payload),
-      refresh_token: refresh_token,
-      user: payload,
-    });
+    try {
+      await this.addRefreshToken(payload.sub, refresh_token);
+      // Explicitly return a JSON response
+      return {
+        access_token: this.jwtService.sign(payload),
+        refresh_token: refresh_token,
+      };
+    } catch (err) {
+      throw err;
+    }
   }
 
-  async getRefreshToken(userId) {
+  async getRefreshToken(userId: string) {
     try {
       return await this.prismaService.refreshTokens.findFirst({
-        where: { user_id: userId },
+        where: { userId: userId },
       });
     } catch (err) {
       return err;
     }
   }
 
-  async addRefreshToken(userId: number, token) {
+  async addRefreshToken(userId: string, token: any) {
     try {
       const hashedToken = await bcrypt.hash(token, 10);
 
       return await this.prismaService.refreshTokens.upsert({
-        where: { user_id: userId },
-        update: { refresh_token: hashedToken },
-        create: { user_id: userId, refresh_token: hashedToken }, // If no record exists, create a new one with user_id and refresh_token
+        where: { userId: userId },
+        update: { refreshToken: hashedToken },
+        create: { userId: userId, refreshToken: hashedToken }, // If no record exists, create a new one with user_id and refresh_token
       });
-    } catch (err) {
-      return err;
-    }
-  }
-
-  async getMe(req: CustomRequest) {
-    try {
-      return req.user;
     } catch (err) {
       return err;
     }
